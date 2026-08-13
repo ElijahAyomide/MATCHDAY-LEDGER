@@ -95,7 +95,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [error, setError] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('all');
+  const [viewPlatform, setViewPlatform] = useState('all');
+  const [tickerExpanded, setTickerExpanded] = useState(false);
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -138,12 +139,24 @@ export default function App() {
     }
   }, [platforms, form.platformId]);
 
-  const decided = useMemo(() => bets.filter(b => b.result === 'won' || b.result === 'lost'), [bets]);
+  useEffect(() => { setTickerExpanded(false); }, [viewPlatform]);
+
+  // All settled bets, regardless of which platform is currently being viewed.
+  // Platform-level stats and the loss-limit safety check always use this —
+  // filtering the view should never hide real risk or break other platforms' numbers.
+  const allDecided = useMemo(() => bets.filter(b => b.result === 'won' || b.result === 'lost'), [bets]);
+
+  // Settled bets scoped to whatever the "Viewing" dropdown is set to — this is
+  // what drives the scoreboard, the balance chart, and the ROI-by-market chart.
+  const decided = useMemo(() => {
+    if (viewPlatform === 'all') return allDecided;
+    return allDecided.filter(b => b.platformId === viewPlatform);
+  }, [allDecided, viewPlatform]);
 
   const platformName = (id) => platforms.find(p => p.id === id)?.name;
 
   const totalLoaded = (p) => p.deposits.reduce((s, d) => s + d.amount, 0);
-  const platformDecided = (id) => decided.filter(b => b.platformId === id);
+  const platformDecided = (id) => allDecided.filter(b => b.platformId === id);
   const platformProfit = (id) => platformDecided(id).reduce((s, b) => s + profitFor(b), 0);
   const platformStaked = (id) => platformDecided(id).reduce((s, b) => s + b.stake, 0);
 
@@ -159,16 +172,21 @@ export default function App() {
       balance: loaded + profit,
       roi: staked > 0 ? +((profit / staked) * 100).toFixed(1) : 0,
     };
-  }), [platforms, decided]);
+  }), [platforms, allDecided]);
 
-  const totalLoadedAll = useMemo(() => platformStats.reduce((s, p) => s + p.loaded, 0), [platformStats]);
+  // Loaded amount scoped to the current view: all platforms combined, or just the selected one.
+  const viewLoaded = useMemo(() => {
+    if (viewPlatform === 'all') return platformStats.reduce((s, p) => s + p.loaded, 0);
+    return platformStats.find(p => p.id === viewPlatform)?.loaded || 0;
+  }, [platformStats, viewPlatform]);
+
   const totalStaked = useMemo(() => decided.reduce((s, b) => s + b.stake, 0), [decided]);
   const totalProfit = useMemo(() => decided.reduce((s, b) => s + profitFor(b), 0), [decided]);
   const roi = totalStaked > 0 ? (totalProfit / totalStaked) * 100 : 0;
   const wins = decided.filter(b => b.result === 'won').length;
   const strikeRate = decided.length ? (wins / decided.length) * 100 : 0;
-  const combinedBalance = totalLoadedAll + totalProfit;
-  const avgStake = decided.length ? decided.reduce((s, b) => s + b.stake, 0) / decided.length : 0;
+  const viewBalance = viewLoaded + totalProfit;
+  const avgStake = allDecided.length ? allDecided.reduce((s, b) => s + b.stake, 0) / allDecided.length : 0;
 
   const streak = useMemo(() => {
     const chron = [...decided].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -183,17 +201,18 @@ export default function App() {
 
   const weeklyLoss = useMemo(() => {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    return decided
+    return allDecided
       .filter(b => new Date(b.date).getTime() >= weekAgo && b.result === 'lost')
       .reduce((s, b) => s + b.stake, 0);
-  }, [decided]);
+  }, [allDecided]);
 
   const limitHit = settings.lossLimitWeekly > 0 && weeklyLoss >= settings.lossLimitWeekly;
 
-  // Combined balance over time: every deposit (across all platforms) and every settled
-  // bet outcome, merged into one timeline, so the line reflects money in AND results.
+  // Balance over time, scoped to the current view: all platforms' deposits + results,
+  // or just the selected platform's, merged into one running timeline.
   const balanceHistory = useMemo(() => {
-    const depositEvents = platforms.flatMap(p => p.deposits.map(d => ({ date: d.date, delta: d.amount, key: `dep-${d.id}` })));
+    const relevantPlatforms = viewPlatform === 'all' ? platforms : platforms.filter(p => p.id === viewPlatform);
+    const depositEvents = relevantPlatforms.flatMap(p => p.deposits.map(d => ({ date: d.date, delta: d.amount, key: `dep-${d.id}` })));
     const betEvents = decided.map(b => ({ date: b.date, delta: profitFor(b), key: `bet-${b.id}` }));
     const events = [...depositEvents, ...betEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
     let running = 0;
@@ -203,7 +222,7 @@ export default function App() {
       points.push({ x: `${i + 1}`, balance: +running.toFixed(2) });
     });
     return points;
-  }, [platforms, decided]);
+  }, [platforms, decided, viewPlatform]);
 
   const categoryStats = useMemo(() => {
     const map = {};
@@ -218,13 +237,14 @@ export default function App() {
   }, [decided]);
 
   const stakeNum = parseFloat(form.stake);
-  const stakeIsHigh = !!stakeNum && decided.length >= 3 && stakeNum > avgStake * settings.stakeAlertMultiplier;
+  const stakeIsHigh = !!stakeNum && allDecided.length >= 3 && stakeNum > avgStake * settings.stakeAlertMultiplier;
 
   const ticker = useMemo(() => {
     const sorted = [...bets].sort((a, b) => new Date(b.date) - new Date(a.date) || b.id.localeCompare(a.id));
-    if (platformFilter === 'all') return sorted;
-    return sorted.filter(b => b.platformId === platformFilter);
-  }, [bets, platformFilter]);
+    if (viewPlatform === 'all') return sorted;
+    return sorted.filter(b => b.platformId === viewPlatform);
+  }, [bets, viewPlatform]);
+  const visibleTicker = tickerExpanded ? ticker : ticker.slice(0, 3);
 
   const addPlatform = (e) => {
     e.preventDefault();
@@ -299,6 +319,14 @@ export default function App() {
         </button>
       </div>
 
+      <div className="view-selector-row">
+        <span className="view-selector-label">VIEWING</span>
+        <select className="view-selector" value={viewPlatform} onChange={e => setViewPlatform(e.target.value)}>
+          <option value="all">All Platforms</option>
+          {platforms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+
       {limitHit && (
         <div className="warning-banner">
           <AlertTriangle size={15} className="warning-icon" />
@@ -313,8 +341,12 @@ export default function App() {
       )}
 
       <div className="scoreboard">
-        <ScoreTile label="Total Balance" value={fmt(combinedBalance, settings.currency)} colorClass={combinedBalance >= totalLoadedAll ? 'text-green' : 'text-red'} />
-        <ScoreTile label="Total Loaded" value={fmt(totalLoadedAll, settings.currency)} sub={`${platforms.length} platform${platforms.length === 1 ? '' : 's'}`} />
+        <ScoreTile label="Total Balance" value={fmt(viewBalance, settings.currency)} colorClass={viewBalance >= viewLoaded ? 'text-green' : 'text-red'} />
+        <ScoreTile
+          label="Total Loaded"
+          value={fmt(viewLoaded, settings.currency)}
+          sub={viewPlatform === 'all' ? `${platforms.length} platform${platforms.length === 1 ? '' : 's'}` : platformName(viewPlatform)}
+        />
         <ScoreTile label="P/L" value={fmt(totalProfit, settings.currency)} sub={`staked ${fmt(totalStaked, settings.currency)}`} colorClass={totalProfit >= 0 ? 'text-green' : 'text-red'} />
         <ScoreTile label="ROI" value={`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`} colorClass={roi >= 0 ? 'text-green' : 'text-red'} />
         <ScoreTile label="Strike Rate" value={`${strikeRate.toFixed(0)}%`} sub={`${wins}W ${decided.length - wins}L`} />
@@ -333,11 +365,11 @@ export default function App() {
             {platformStats.length > 0 && (
               <div className="platform-list">
                 {platformStats.map(p => (
-                  <div key={p.id} className="platform-item">
+                  <div key={p.id} className={`platform-item ${viewPlatform === p.id ? 'platform-item-active' : ''}`}>
                     <div className="platform-item-top">
-                      <div className="platform-item-name">
+                      <button className="platform-item-name" onClick={() => setViewPlatform(p.id)}>
                         <Wallet size={13} /> {p.name}
-                      </div>
+                      </button>
                       <button
                         className="delete-btn"
                         onClick={() => removePlatform(p.id)}
@@ -445,26 +477,32 @@ export default function App() {
                 <Circle size={6} className="pulse-dot" />
                 <span>BET LOG</span>
               </div>
-              <select className="platform-filter" value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}>
-                <option value="all">All platforms</option>
-                {platforms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              {ticker.length > 0 && (
+                <span className="ticker-count">{ticker.length} bet{ticker.length === 1 ? '' : 's'}</span>
+              )}
             </div>
             <div className="ticker-scroll">
               {ticker.length === 0 ? (
                 <div className="ticker-empty">Nothing on the board yet — log your first bet above and it'll print here.</div>
               ) : (
-                ticker.map(bet => (
+                visibleTicker.map(bet => (
                   <TickerRow key={bet.id} bet={bet} symbol={settings.currency} platformName={platformName(bet.platformId)} onSetResult={setResult} onRemove={removeBet} />
                 ))
               )}
             </div>
+            {ticker.length > 3 && (
+              <button className="show-more-btn" onClick={() => setTickerExpanded(e => !e)}>
+                {tickerExpanded ? 'Show less' : `Show more (${ticker.length - 3})`}
+              </button>
+            )}
           </div>
         </div>
 
         <div className="col">
           <div className="card">
-            <div className="card-label">Combined balance over time</div>
+            <div className="card-label">
+              {viewPlatform === 'all' ? 'Combined balance over time' : `${platformName(viewPlatform)} balance over time`}
+            </div>
             {balanceHistory.length > 1 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={balanceHistory} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
@@ -484,29 +522,31 @@ export default function App() {
             )}
           </div>
 
-          <div className="card">
-            <div className="card-label">ROI by platform</div>
-            {platformStats.filter(p => p.staked > 0).length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(140, platformStats.length * 34)}>
-                <BarChart data={platformStats} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
-                  <CartesianGrid stroke="#272E20" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} unit="%" />
-                  <YAxis dataKey="name" type="category" width={90} tick={{ fill: '#818A76', fontSize: 10.5 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
-                    formatter={(v) => [`${v}%`, 'ROI']}
-                  />
-                  <Bar dataKey="roi" radius={[0, 3, 3, 0]}>
-                    {platformStats.map((p, i) => (
-                      <Cell key={i} fill={p.roi >= 0 ? '#3DDC84' : '#EA5B4E'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty">Settle a few bets on each platform to compare them.</div>
-            )}
-          </div>
+          {viewPlatform === 'all' && (
+            <div className="card">
+              <div className="card-label">ROI by platform</div>
+              {platformStats.filter(p => p.staked > 0).length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(140, platformStats.length * 34)}>
+                  <BarChart data={platformStats} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
+                    <CartesianGrid stroke="#272E20" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} unit="%" />
+                    <YAxis dataKey="name" type="category" width={90} tick={{ fill: '#818A76', fontSize: 10.5 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
+                      formatter={(v) => [`${v}%`, 'ROI']}
+                    />
+                    <Bar dataKey="roi" radius={[0, 3, 3, 0]}>
+                      {platformStats.map((p, i) => (
+                        <Cell key={i} fill={p.roi >= 0 ? '#3DDC84' : '#EA5B4E'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty">Settle a few bets on each platform to compare them.</div>
+              )}
+            </div>
+          )}
 
           <div className="card">
             <div className="card-label">ROI by market</div>
