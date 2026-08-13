@@ -190,19 +190,111 @@ body {
 }
 .btn-primary:hover { filter: brightness(1.08); }
 
+/* Platforms */
+.platform-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.platform-item {
+  background: #181D14;
+  border: 1px solid #272E20;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.platform-item-top { display: flex; align-items: center; justify-content: space-between; }
+.platform-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, monospace;
+  color: #E9ECE4;
+  font-size: 13px;
+  font-weight: 700;
+}
+.platform-item-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  color: #818A76;
+  font-size: 11.5px;
+}
+.platform-item-stats b { font-family: ui-monospace, monospace; color: #E9ECE4; font-weight: 700; }
+.link-btn {
+  background: transparent;
+  border: none;
+  color: #3DDC84;
+  font-size: 11.5px;
+  padding: 8px 0 0;
+  cursor: pointer;
+}
+.add-funds-row { display: flex; gap: 6px; margin-top: 8px; }
+.add-funds-row input {
+  flex: 1;
+  background: #12160F;
+  color: #E9ECE4;
+  border: 1px solid #272E20;
+  border-radius: 3px;
+  font-size: 12.5px;
+  padding: 6px 8px;
+}
+.btn-small {
+  background: #3DDC84;
+  color: #08130D;
+  border: none;
+  border-radius: 3px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-small-ghost {
+  background: transparent;
+  color: #818A76;
+  border: 1px solid #272E20;
+  border-radius: 3px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.platform-add-form { align-items: end; }
+.platform-add-amount { display: flex; gap: 6px; }
+.platform-add-amount input { flex: 1; }
+
 /* Ticker */
 .ticker-card { flex: 1; padding: 0; overflow: hidden; }
 .ticker-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 14px 16px 8px;
+  flex-wrap: wrap;
 }
+.ticker-header-left { display: flex; align-items: center; gap: 6px; }
 .ticker-header span {
   font-family: ui-monospace, monospace;
   color: #818A76;
   font-size: 10px;
   letter-spacing: 0.12em;
+}
+.platform-filter {
+  background: #181D14;
+  color: #818A76;
+  border: 1px solid #272E20;
+  border-radius: 3px;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.platform-tag {
+  font-family: ui-monospace, monospace;
+  color: #3DDC84;
+  font-size: 10.5px;
+  background: rgba(61, 220, 132, 0.1);
+  border: 1px solid rgba(61, 220, 132, 0.3);
+  border-radius: 3px;
+  padding: 1px 6px;
+  flex-shrink: 0;
 }
 .ticker-scroll { max-height: 420px; overflow-y: auto; }
 .ticker-empty {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Settings, Plus, Trash2, AlertTriangle, X, Circle } from 'lucide-react';
+import { Settings, Plus, Trash2, AlertTriangle, X, Circle, Wallet } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Cell,
@@ -11,14 +11,14 @@ const CATEGORIES = [
 ];
 
 const DEFAULT_SETTINGS = {
-  startingBankroll: 500,
-  currency: '£',
+  currency: '₦',
   lossLimitWeekly: 0,
   stakeAlertMultiplier: 2.5,
 };
 
 const BETS_KEY = 'matchday-ledger-bets';
 const SETTINGS_KEY = 'matchday-ledger-settings';
+const PLATFORMS_KEY = 'matchday-ledger-platforms';
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -32,7 +32,8 @@ function profitFor(bet) {
 
 function fmt(n, symbol) {
   const sign = n < 0 ? '-' : '';
-  return `${sign}${symbol}${Math.abs(n).toFixed(2)}`;
+  const formatted = Math.abs(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}${symbol}${formatted}`;
 }
 
 function formatDate(d) {
@@ -50,7 +51,7 @@ function ScoreTile({ label, value, sub, colorClass }) {
   );
 }
 
-function TickerRow({ bet, symbol, onSetResult, onRemove }) {
+function TickerRow({ bet, symbol, platformName, onSetResult, onRemove }) {
   const profit = profitFor(bet);
   let resultClass = 'result-pending';
   let resultLabel = 'PENDING';
@@ -62,11 +63,14 @@ function TickerRow({ bet, symbol, onSetResult, onRemove }) {
     <div className="ticker-row">
       <div className="ticker-info">
         <span className="ticker-date">{formatDate(bet.date)}</span>
+        <span className="platform-tag">{platformName || 'Unknown'}</span>
         <span className="ticker-match">{bet.competition}</span>
         <span className="ticker-market">{bet.market}</span>
       </div>
       <div className="ticker-actions">
-        <span className="ticker-stake">{symbol}{bet.stake.toFixed(2)} @ {bet.odds.toFixed(2)}</span>
+        <span className="ticker-stake">
+          {symbol}{bet.stake.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ {bet.odds.toFixed(2)}
+        </span>
         {bet.result === 'pending' ? (
           <div className="result-buttons">
             <button className="result-btn btn-won" onClick={() => onSetResult(bet.id, 'won')}>WON</button>
@@ -86,17 +90,26 @@ function TickerRow({ bet, symbol, onSetResult, onRemove }) {
 
 export default function App() {
   const [bets, setBets] = useState([]);
+  const [platforms, setPlatforms] = useState([]);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [error, setError] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('all');
+
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     competition: '',
     market: CATEGORIES[0],
     stake: '',
     odds: '',
+    platformId: '',
   });
+
+  const [newPlatformName, setNewPlatformName] = useState('');
+  const [newPlatformAmount, setNewPlatformAmount] = useState('');
+  const [addFundsOpenId, setAddFundsOpenId] = useState(null);
+  const [addFundsAmount, setAddFundsAmount] = useState('');
 
   // Load saved data once, when the app first opens
   useEffect(() => {
@@ -105,28 +118,56 @@ export default function App() {
       if (savedBets) setBets(JSON.parse(savedBets));
     } catch (e) { /* nothing saved yet */ }
     try {
+      const savedPlatforms = localStorage.getItem(PLATFORMS_KEY);
+      if (savedPlatforms) setPlatforms(JSON.parse(savedPlatforms));
+    } catch (e) { /* nothing saved yet */ }
+    try {
       const savedSettings = localStorage.getItem(SETTINGS_KEY);
       if (savedSettings) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) });
     } catch (e) { /* nothing saved yet */ }
   }, []);
 
-  // Save any time bets or settings change
-  useEffect(() => {
-    localStorage.setItem(BETS_KEY, JSON.stringify(bets));
-  }, [bets]);
+  useEffect(() => { localStorage.setItem(BETS_KEY, JSON.stringify(bets)); }, [bets]);
+  useEffect(() => { localStorage.setItem(PLATFORMS_KEY, JSON.stringify(platforms)); }, [platforms]);
+  useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
+  // Keep the bet-form platform selector pointed at a real platform once one exists
   useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [settings]);
+    if (!form.platformId && platforms.length > 0) {
+      setForm(f => ({ ...f, platformId: platforms[0].id }));
+    }
+  }, [platforms, form.platformId]);
 
   const decided = useMemo(() => bets.filter(b => b.result === 'won' || b.result === 'lost'), [bets]);
 
+  const platformName = (id) => platforms.find(p => p.id === id)?.name;
+
+  const totalLoaded = (p) => p.deposits.reduce((s, d) => s + d.amount, 0);
+  const platformDecided = (id) => decided.filter(b => b.platformId === id);
+  const platformProfit = (id) => platformDecided(id).reduce((s, b) => s + profitFor(b), 0);
+  const platformStaked = (id) => platformDecided(id).reduce((s, b) => s + b.stake, 0);
+
+  const platformStats = useMemo(() => platforms.map(p => {
+    const loaded = totalLoaded(p);
+    const profit = platformProfit(p.id);
+    const staked = platformStaked(p.id);
+    return {
+      ...p,
+      loaded,
+      profit,
+      staked,
+      balance: loaded + profit,
+      roi: staked > 0 ? +((profit / staked) * 100).toFixed(1) : 0,
+    };
+  }), [platforms, decided]);
+
+  const totalLoadedAll = useMemo(() => platformStats.reduce((s, p) => s + p.loaded, 0), [platformStats]);
   const totalStaked = useMemo(() => decided.reduce((s, b) => s + b.stake, 0), [decided]);
   const totalProfit = useMemo(() => decided.reduce((s, b) => s + profitFor(b), 0), [decided]);
   const roi = totalStaked > 0 ? (totalProfit / totalStaked) * 100 : 0;
   const wins = decided.filter(b => b.result === 'won').length;
   const strikeRate = decided.length ? (wins / decided.length) * 100 : 0;
-  const bankroll = settings.startingBankroll + totalProfit;
+  const combinedBalance = totalLoadedAll + totalProfit;
   const avgStake = decided.length ? decided.reduce((s, b) => s + b.stake, 0) / decided.length : 0;
 
   const streak = useMemo(() => {
@@ -149,16 +190,20 @@ export default function App() {
 
   const limitHit = settings.lossLimitWeekly > 0 && weeklyLoss >= settings.lossLimitWeekly;
 
-  const bankrollHistory = useMemo(() => {
-    const chron = [...decided].sort((a, b) => new Date(a.date) - new Date(b.date));
-    let running = settings.startingBankroll;
-    const points = [{ x: 'START', bankroll: +running.toFixed(2) }];
-    chron.forEach((b, i) => {
-      running += profitFor(b);
-      points.push({ x: `${i + 1}`, bankroll: +running.toFixed(2) });
+  // Combined balance over time: every deposit (across all platforms) and every settled
+  // bet outcome, merged into one timeline, so the line reflects money in AND results.
+  const balanceHistory = useMemo(() => {
+    const depositEvents = platforms.flatMap(p => p.deposits.map(d => ({ date: d.date, delta: d.amount, key: `dep-${d.id}` })));
+    const betEvents = decided.map(b => ({ date: b.date, delta: profitFor(b), key: `bet-${b.id}` }));
+    const events = [...depositEvents, ...betEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
+    let running = 0;
+    const points = [{ x: 'START', balance: 0 }];
+    events.forEach((e, i) => {
+      running += e.delta;
+      points.push({ x: `${i + 1}`, balance: +running.toFixed(2) });
     });
     return points;
-  }, [decided, settings.startingBankroll]);
+  }, [platforms, decided]);
 
   const categoryStats = useMemo(() => {
     const map = {};
@@ -175,17 +220,55 @@ export default function App() {
   const stakeNum = parseFloat(form.stake);
   const stakeIsHigh = !!stakeNum && decided.length >= 3 && stakeNum > avgStake * settings.stakeAlertMultiplier;
 
-  const ticker = [...bets].sort((a, b) => new Date(b.date) - new Date(a.date) || b.id.localeCompare(a.id));
+  const ticker = useMemo(() => {
+    const sorted = [...bets].sort((a, b) => new Date(b.date) - new Date(a.date) || b.id.localeCompare(a.id));
+    if (platformFilter === 'all') return sorted;
+    return sorted.filter(b => b.platformId === platformFilter);
+  }, [bets, platformFilter]);
+
+  const addPlatform = (e) => {
+    e.preventDefault();
+    setError('');
+    const name = newPlatformName.trim();
+    const amount = parseFloat(newPlatformAmount);
+    if (!name) { setError('Give the platform a name.'); return; }
+    if (!amount || amount < 0) { setError('Starting amount must be zero or more.'); return; }
+    const platform = { id: uid(), name, deposits: amount > 0 ? [{ id: uid(), date: new Date().toISOString().slice(0, 10), amount }] : [] };
+    setPlatforms(prev => [...prev, platform]);
+    setNewPlatformName('');
+    setNewPlatformAmount('');
+  };
+
+  const addFunds = (platformId) => {
+    const amount = parseFloat(addFundsAmount);
+    if (!amount || amount <= 0) return;
+    setPlatforms(prev => prev.map(p => p.id === platformId
+      ? { ...p, deposits: [...p.deposits, { id: uid(), date: new Date().toISOString().slice(0, 10), amount }] }
+      : p));
+    setAddFundsAmount('');
+    setAddFundsOpenId(null);
+  };
+
+  const removePlatform = (platformId) => {
+    const hasBets = bets.some(b => b.platformId === platformId);
+    if (hasBets) return;
+    setPlatforms(prev => prev.filter(p => p.id !== platformId));
+  };
 
   const addBet = (e) => {
     e.preventDefault();
     setError('');
+    if (platforms.length === 0) { setError('Add a platform below before logging a bet.'); return; }
     const stake = parseFloat(form.stake);
     const odds = parseFloat(form.odds);
+    if (!form.platformId) { setError('Choose which platform this bet was placed on.'); return; }
     if (!form.competition.trim()) { setError('Add the match or event.'); return; }
     if (!stake || stake <= 0) { setError('Stake must be a positive number.'); return; }
     if (!odds || odds <= 1) { setError('Odds must be decimal and greater than 1.00.'); return; }
-    const bet = { id: uid(), date: form.date, competition: form.competition.trim(), market: form.market, stake, odds, result: 'pending' };
+    const bet = {
+      id: uid(), date: form.date, competition: form.competition.trim(), market: form.market,
+      stake, odds, result: 'pending', platformId: form.platformId,
+    };
     setBets(prev => [bet, ...prev]);
     setForm({ ...form, competition: '', stake: '', odds: '' });
   };
@@ -196,6 +279,7 @@ export default function App() {
   const clearAll = () => {
     if (!confirmClear) { setConfirmClear(true); return; }
     setBets([]);
+    setPlatforms([]);
     setConfirmClear(false);
     setShowSettings(false);
   };
@@ -221,7 +305,7 @@ export default function App() {
           <div>
             <div className="warning-title">You've hit your weekly loss limit</div>
             <div className="warning-body">
-              {fmt(-weeklyLoss, settings.currency)} lost in the last 7 days against a {fmt(-settings.lossLimitWeekly, settings.currency)} limit.
+              {fmt(-weeklyLoss, settings.currency)} lost across all platforms in the last 7 days against a {fmt(-settings.lossLimitWeekly, settings.currency)} limit.
               Consider taking a break before logging another bet.
             </div>
           </div>
@@ -229,9 +313,9 @@ export default function App() {
       )}
 
       <div className="scoreboard">
-        <ScoreTile label="Bankroll" value={fmt(bankroll, settings.currency)} colorClass={bankroll >= settings.startingBankroll ? 'text-green' : 'text-red'} />
-        <ScoreTile label="Staked" value={fmt(totalStaked, settings.currency)} />
-        <ScoreTile label="P/L" value={fmt(totalProfit, settings.currency)} colorClass={totalProfit >= 0 ? 'text-green' : 'text-red'} />
+        <ScoreTile label="Total Balance" value={fmt(combinedBalance, settings.currency)} colorClass={combinedBalance >= totalLoadedAll ? 'text-green' : 'text-red'} />
+        <ScoreTile label="Total Loaded" value={fmt(totalLoadedAll, settings.currency)} sub={`${platforms.length} platform${platforms.length === 1 ? '' : 's'}`} />
+        <ScoreTile label="P/L" value={fmt(totalProfit, settings.currency)} sub={`staked ${fmt(totalStaked, settings.currency)}`} colorClass={totalProfit >= 0 ? 'text-green' : 'text-red'} />
         <ScoreTile label="ROI" value={`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`} colorClass={roi >= 0 ? 'text-green' : 'text-red'} />
         <ScoreTile label="Strike Rate" value={`${strikeRate.toFixed(0)}%`} sub={`${wins}W ${decided.length - wins}L`} />
         <ScoreTile
@@ -243,6 +327,63 @@ export default function App() {
 
       <div className="grid-main">
         <div className="col">
+          {/* Platforms */}
+          <div className="card">
+            <div className="card-label">Platforms</div>
+            {platformStats.length > 0 && (
+              <div className="platform-list">
+                {platformStats.map(p => (
+                  <div key={p.id} className="platform-item">
+                    <div className="platform-item-top">
+                      <div className="platform-item-name">
+                        <Wallet size={13} /> {p.name}
+                      </div>
+                      <button
+                        className="delete-btn"
+                        onClick={() => removePlatform(p.id)}
+                        title={bets.some(b => b.platformId === p.id) ? "Can't remove — bets are logged on this platform" : 'Remove platform'}
+                        style={{ opacity: bets.some(b => b.platformId === p.id) ? 0.3 : 1 }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="platform-item-stats">
+                      <span>Loaded <b>{fmt(p.loaded, settings.currency)}</b></span>
+                      <span>Balance <b className={p.profit >= 0 ? 'text-green' : 'text-red'}>{fmt(p.balance, settings.currency)}</b></span>
+                      <span>ROI <b className={p.roi >= 0 ? 'text-green' : 'text-red'}>{p.roi >= 0 ? '+' : ''}{p.roi}%</b></span>
+                    </div>
+                    {addFundsOpenId === p.id ? (
+                      <div className="add-funds-row">
+                        <input
+                          type="number" step="0.01" placeholder="Amount to add" autoFocus
+                          value={addFundsAmount} onChange={e => setAddFundsAmount(e.target.value)}
+                        />
+                        <button className="btn-small" onClick={() => addFunds(p.id)}>Add</button>
+                        <button className="btn-small-ghost" onClick={() => { setAddFundsOpenId(null); setAddFundsAmount(''); }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button className="link-btn" onClick={() => setAddFundsOpenId(p.id)}>+ Add funds</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <form onSubmit={addPlatform} className="form-row-2 platform-add-form">
+              <input
+                type="text" placeholder="Platform name (e.g. SportyBet)"
+                value={newPlatformName} onChange={e => setNewPlatformName(e.target.value)}
+              />
+              <div className="platform-add-amount">
+                <input
+                  type="number" step="0.01" placeholder={`Starting amount (${settings.currency})`}
+                  value={newPlatformAmount} onChange={e => setNewPlatformAmount(e.target.value)}
+                />
+                <button type="submit" className="btn-small"><Plus size={13} /></button>
+              </div>
+            </form>
+          </div>
+
+          {/* Bet form */}
           <div className="card">
             <div className="card-label">Log a bet</div>
             <form onSubmit={addBet} className="bet-form">
@@ -252,21 +393,30 @@ export default function App() {
                   <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
                 </div>
                 <div className="field">
+                  <label>PLATFORM</label>
+                  <select value={form.platformId} onChange={e => setForm({ ...form, platformId: e.target.value })} disabled={platforms.length === 0}>
+                    {platforms.length === 0 && <option value="">Add a platform first</option>}
+                    {platforms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row-2">
+                <div className="field">
+                  <label>MATCH / EVENT</label>
+                  <input type="text" placeholder="e.g. Arsenal v Chelsea" value={form.competition} onChange={e => setForm({ ...form, competition: e.target.value })} />
+                </div>
+                <div className="field">
                   <label>MARKET</label>
                   <select value={form.market} onChange={e => setForm({ ...form, market: e.target.value })}>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
-              <div className="field">
-                <label>MATCH / EVENT</label>
-                <input type="text" placeholder="e.g. Arsenal v Chelsea" value={form.competition} onChange={e => setForm({ ...form, competition: e.target.value })} />
-              </div>
               <div className="form-row-2">
                 <div className="field">
                   <label>STAKE ({settings.currency})</label>
                   <input
-                    type="number" step="0.01" placeholder="10.00" value={form.stake}
+                    type="number" step="0.01" placeholder="1000" value={form.stake}
                     onChange={e => setForm({ ...form, stake: e.target.value })}
                     className={stakeIsHigh ? 'input-warning' : ''}
                   />
@@ -288,17 +438,24 @@ export default function App() {
             </form>
           </div>
 
+          {/* Ticker */}
           <div className="card ticker-card">
             <div className="ticker-header">
-              <Circle size={6} className="pulse-dot" />
-              <span>BET LOG</span>
+              <div className="ticker-header-left">
+                <Circle size={6} className="pulse-dot" />
+                <span>BET LOG</span>
+              </div>
+              <select className="platform-filter" value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}>
+                <option value="all">All platforms</option>
+                {platforms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
             <div className="ticker-scroll">
               {ticker.length === 0 ? (
                 <div className="ticker-empty">Nothing on the board yet — log your first bet above and it'll print here.</div>
               ) : (
                 ticker.map(bet => (
-                  <TickerRow key={bet.id} bet={bet} symbol={settings.currency} onSetResult={setResult} onRemove={removeBet} />
+                  <TickerRow key={bet.id} bet={bet} symbol={settings.currency} platformName={platformName(bet.platformId)} onSetResult={setResult} onRemove={removeBet} />
                 ))
               )}
             </div>
@@ -307,23 +464,47 @@ export default function App() {
 
         <div className="col">
           <div className="card">
-            <div className="card-label">Bankroll over time</div>
-            {bankrollHistory.length > 1 ? (
+            <div className="card-label">Combined balance over time</div>
+            {balanceHistory.length > 1 ? (
               <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={bankrollHistory} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
+                <LineChart data={balanceHistory} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
                   <CartesianGrid stroke="#272E20" vertical={false} />
                   <XAxis dataKey="x" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
                   <YAxis tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
                   <Tooltip
                     contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
                     labelStyle={{ color: '#818A76' }}
-                    formatter={(v) => [fmt(v, settings.currency), 'Bankroll']}
+                    formatter={(v) => [fmt(v, settings.currency), 'Balance']}
                   />
-                  <Line type="monotone" dataKey="bankroll" stroke="#3DDC84" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="balance" stroke="#3DDC84" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="chart-empty">Settle a few bets to see the line move.</div>
+              <div className="chart-empty">Add a platform and settle a few bets to see the line move.</div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-label">ROI by platform</div>
+            {platformStats.filter(p => p.staked > 0).length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(140, platformStats.length * 34)}>
+                <BarChart data={platformStats} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="#272E20" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} unit="%" />
+                  <YAxis dataKey="name" type="category" width={90} tick={{ fill: '#818A76', fontSize: 10.5 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
+                    formatter={(v) => [`${v}%`, 'ROI']}
+                  />
+                  <Bar dataKey="roi" radius={[0, 3, 3, 0]}>
+                    {platformStats.map((p, i) => (
+                      <Cell key={i} fill={p.roi >= 0 ? '#3DDC84' : '#EA5B4E'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty">Settle a few bets on each platform to compare them.</div>
             )}
           </div>
 
@@ -364,17 +545,10 @@ export default function App() {
             </div>
             <div className="modal-body">
               <div className="field">
-                <label>STARTING BANKROLL</label>
-                <input
-                  type="number" value={settings.startingBankroll}
-                  onChange={e => setSettings({ ...settings, startingBankroll: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="field">
                 <label>CURRENCY SYMBOL</label>
                 <input
                   type="text" value={settings.currency} maxLength={3}
-                  onChange={e => setSettings({ ...settings, currency: e.target.value || '£' })}
+                  onChange={e => setSettings({ ...settings, currency: e.target.value || '₦' })}
                 />
               </div>
               <div className="field">
@@ -383,7 +557,7 @@ export default function App() {
                   type="number" value={settings.lossLimitWeekly}
                   onChange={e => setSettings({ ...settings, lossLimitWeekly: parseFloat(e.target.value) || 0 })}
                 />
-                <div className="field-hint">You'll see a warning banner once losses in a rolling 7 days reach this.</div>
+                <div className="field-hint">Combined across all platforms — warns once losses in a rolling 7 days reach this.</div>
               </div>
               <div className="field">
                 <label>STAKE ALERT MULTIPLIER</label>
@@ -395,7 +569,7 @@ export default function App() {
               </div>
               <div className="modal-danger">
                 <button className={confirmClear ? 'btn-danger-confirm' : 'btn-danger'} onClick={clearAll}>
-                  {confirmClear ? 'Click again to permanently clear all bets' : 'Clear all bet history'}
+                  {confirmClear ? 'Click again to permanently clear all data' : 'Clear all bets & platforms'}
                 </button>
               </div>
             </div>
