@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Settings, Plus, Trash2, AlertTriangle, X, Circle, Wallet, Eye, EyeOff } from 'lucide-react';
+import { Settings, Plus, Trash2, AlertTriangle, X, Circle, Wallet, Eye, EyeOff, Coffee, Copy, Check } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Cell,
@@ -19,6 +19,11 @@ const DEFAULT_SETTINGS = {
 const BETS_KEY = 'matchday-ledger-bets';
 const SETTINGS_KEY = 'matchday-ledger-settings';
 const PLATFORMS_KEY = 'matchday-ledger-platforms';
+
+const SUPPORT_ACCOUNTS = [
+  { bank: 'Union Bank', accountNumber: '0144128799', accountName: 'Omosanyin Elijah Ayomide' },
+  { bank: 'Opay', accountNumber: '8145686089', accountName: 'Omosanyin Elijah Ayomide' },
+];
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -93,6 +98,21 @@ function TickerRow({ bet, symbol, platformName, onSetResult, onRemove }) {
   );
 }
 
+function SupportAccountRow({ account, onCopy, copied }) {
+  return (
+    <div className="support-account">
+      <div className="support-account-bank">{account.bank}</div>
+      <div className="support-account-line">
+        <span className="support-account-number">{account.accountNumber}</span>
+        <button className="copy-btn" onClick={() => onCopy(account.accountNumber)}>
+          {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+        </button>
+      </div>
+      <div className="support-account-name">{account.accountName}</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [bets, setBets] = useState([]);
   const [platforms, setPlatforms] = useState([]);
@@ -122,6 +142,17 @@ export default function App() {
   // Balance visibility defaults to hidden every time the app opens — a quick
   // privacy toggle for glancing at the app around other people.
   const [balanceVisible, setBalanceVisible] = useState(false);
+
+  const [showSupport, setShowSupport] = useState(false);
+  const [copiedNumber, setCopiedNumber] = useState(null);
+
+  const copyAccountNumber = async (number) => {
+    try {
+      await navigator.clipboard.writeText(number);
+      setCopiedNumber(number);
+      setTimeout(() => setCopiedNumber(n => (n === number ? null : n)), 2000);
+    } catch (e) { /* clipboard blocked in this browser */ }
+  };
 
   // Load saved data once, when the app first opens
   useEffect(() => {
@@ -615,6 +646,33 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <div className="support-banner">
+        <div className="support-banner-text">
+          <Coffee size={16} />
+          <span>Matchday Ledger is free to use. If it's helped you keep track this season, you can buy Elijah a meal.</span>
+        </div>
+        <button className="support-banner-btn" onClick={() => setShowSupport(true)}>Buy Elijah a Meal</button>
+      </div>
+
+      {showSupport && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <span>BUY ELIJAH A MEAL</span>
+              <button onClick={() => setShowSupport(false)} aria-label="Close"><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <div className="support-intro">
+                Thanks for even considering it — this app is free and always will be. Send whatever feels right to either account below.
+              </div>
+              {SUPPORT_ACCOUNTS.map(acc => (
+                <SupportAccountRow key={acc.accountNumber} account={acc} onCopy={copyAccountNumber} copied={copiedNumber === acc.accountNumber} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSettings && (
         <div className="modal-overlay">
