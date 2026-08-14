@@ -25,6 +25,18 @@ const SUPPORT_ACCOUNTS = [
   { bank: 'Opay', accountNumber: '8145686089', accountName: 'Omosanyin Elijah Ayomide' },
 ];
 
+// Mirrors the :root variables in App.css. Charts are drawn with SVG and can't
+// read CSS variables directly, so these are the one other place to edit colors —
+// keep this in sync with the :root block at the top of App.css.
+const CHART_COLORS = {
+  line: '#272E20',
+  dim: '#565D4B',
+  dimmer: '#818A76',
+  surface2: '#181D14',
+  green: '#3DDC84',
+  red: '#EA5B4E',
+};
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -474,7 +486,7 @@ export default function App() {
               </div>
             )}
             <form onSubmit={addPlatform} className="form-row-2 platform-add-form">
-              <input
+              <input className="platform-name"
                 type="text" placeholder="Platform name (e.g. SportyBet)"
                 value={newPlatformName} onChange={e => setNewPlatformName(e.target.value)}
               />
@@ -579,15 +591,15 @@ export default function App() {
             {balanceHistory.length > 1 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={balanceHistory} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid stroke="#272E20" vertical={false} />
-                  <XAxis dataKey="x" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
-                  <YAxis tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
+                  <CartesianGrid stroke={CHART_COLORS.line} vertical={false} />
+                  <XAxis dataKey="x" tick={{ fill: CHART_COLORS.dim, fontSize: 10 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} />
+                  <YAxis tick={{ fill: CHART_COLORS.dim, fontSize: 10 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} />
                   <Tooltip
-                    contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
-                    labelStyle={{ color: '#818A76' }}
+                    contentStyle={{ background: CHART_COLORS.surface2, border: `1px solid ${CHART_COLORS.line}`, borderRadius: 4, fontSize: 12 }}
+                    labelStyle={{ color: CHART_COLORS.dimmer }}
                     formatter={(v) => [fmt(v, settings.currency), 'Balance']}
                   />
-                  <Line type="monotone" dataKey="balance" stroke="#3DDC84" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="balance" stroke={CHART_COLORS.green} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -601,16 +613,16 @@ export default function App() {
               {platformStats.filter(p => p.staked > 0).length > 0 ? (
                 <ResponsiveContainer width="100%" height={Math.max(140, platformStats.length * 34)}>
                   <BarChart data={platformStats} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
-                    <CartesianGrid stroke="#272E20" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} unit="%" />
-                    <YAxis dataKey="name" type="category" width={90} tick={{ fill: '#818A76', fontSize: 10.5 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
+                    <CartesianGrid stroke={CHART_COLORS.line} horizontal={false} />
+                    <XAxis type="number" tick={{ fill: CHART_COLORS.dim, fontSize: 10 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} unit="%" />
+                    <YAxis dataKey="name" type="category" width={90} tick={{ fill: CHART_COLORS.dimmer, fontSize: 10.5 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
+                      contentStyle={{ background: CHART_COLORS.surface2, border: `1px solid ${CHART_COLORS.line}`, borderRadius: 4, fontSize: 12 }}
                       formatter={(v) => [`${v}%`, 'ROI']}
                     />
                     <Bar dataKey="roi" radius={[0, 3, 3, 0]}>
                       {platformStats.map((p, i) => (
-                        <Cell key={i} fill={p.roi >= 0 ? '#3DDC84' : '#EA5B4E'} />
+                        <Cell key={i} fill={p.roi >= 0 ? CHART_COLORS.green : CHART_COLORS.red} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -626,16 +638,16 @@ export default function App() {
             {categoryStats.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(140, categoryStats.length * 34)}>
                 <BarChart data={categoryStats} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
-                  <CartesianGrid stroke="#272E20" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#565D4B', fontSize: 10 }} axisLine={{ stroke: '#272E20' }} tickLine={false} unit="%" />
-                  <YAxis dataKey="market" type="category" width={110} tick={{ fill: '#818A76', fontSize: 10.5 }} axisLine={{ stroke: '#272E20' }} tickLine={false} />
+                  <CartesianGrid stroke={CHART_COLORS.line} horizontal={false} />
+                  <XAxis type="number" tick={{ fill: CHART_COLORS.dim, fontSize: 10 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} unit="%" />
+                  <YAxis dataKey="market" type="category" width={110} tick={{ fill: CHART_COLORS.dimmer, fontSize: 10.5 }} axisLine={{ stroke: CHART_COLORS.line }} tickLine={false} />
                   <Tooltip
-                    contentStyle={{ background: '#181D14', border: '1px solid #272E20', borderRadius: 4, fontSize: 12 }}
+                    contentStyle={{ background: CHART_COLORS.surface2, border: `1px solid ${CHART_COLORS.line}`, borderRadius: 4, fontSize: 12 }}
                     formatter={(v) => [`${v}%`, 'ROI']}
                   />
                   <Bar dataKey="roi" radius={[0, 3, 3, 0]}>
                     {categoryStats.map((c, i) => (
-                      <Cell key={i} fill={c.roi >= 0 ? '#3DDC84' : '#EA5B4E'} />
+                      <Cell key={i} fill={c.roi >= 0 ? CHART_COLORS.green : CHART_COLORS.red} />
                     ))}
                   </Bar>
                 </BarChart>
