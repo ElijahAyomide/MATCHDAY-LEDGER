@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Settings, Plus, Trash2, AlertTriangle, X, Circle, Wallet } from 'lucide-react';
+import { Settings, Plus, Trash2, AlertTriangle, X, Circle, Wallet, Eye, EyeOff } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Cell,
@@ -34,6 +34,11 @@ function fmt(n, symbol) {
   const sign = n < 0 ? '-' : '';
   const formatted = Math.abs(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${sign}${symbol}${formatted}`;
+}
+
+function fmtMasked(n, symbol, visible) {
+  if (visible) return fmt(n, symbol);
+  return `${symbol}••••••`;
 }
 
 function formatDate(d) {
@@ -109,8 +114,14 @@ export default function App() {
 
   const [newPlatformName, setNewPlatformName] = useState('');
   const [newPlatformAmount, setNewPlatformAmount] = useState('');
-  const [addFundsOpenId, setAddFundsOpenId] = useState(null);
-  const [addFundsAmount, setAddFundsAmount] = useState('');
+  const [fundsFormOpenId, setFundsFormOpenId] = useState(null);
+  const [fundsFormMode, setFundsFormMode] = useState('add'); // 'add' | 'withdraw'
+  const [fundsAmount, setFundsAmount] = useState('');
+  const [fundsError, setFundsError] = useState('');
+
+  // Balance visibility defaults to hidden every time the app opens — a quick
+  // privacy toggle for glancing at the app around other people.
+  const [balanceVisible, setBalanceVisible] = useState(false);
 
   // Load saved data once, when the app first opens
   useEffect(() => {
@@ -155,7 +166,7 @@ export default function App() {
 
   const platformName = (id) => platforms.find(p => p.id === id)?.name;
 
-  const totalLoaded = (p) => p.deposits.reduce((s, d) => s + d.amount, 0);
+  const totalLoaded = (p) => p.deposits.reduce((s, d) => s + (d.type === 'withdrawal' ? -d.amount : d.amount), 0);
   const platformDecided = (id) => allDecided.filter(b => b.platformId === id);
   const platformProfit = (id) => platformDecided(id).reduce((s, b) => s + profitFor(b), 0);
   const platformStaked = (id) => platformDecided(id).reduce((s, b) => s + b.stake, 0);
@@ -212,7 +223,7 @@ export default function App() {
   // or just the selected platform's, merged into one running timeline.
   const balanceHistory = useMemo(() => {
     const relevantPlatforms = viewPlatform === 'all' ? platforms : platforms.filter(p => p.id === viewPlatform);
-    const depositEvents = relevantPlatforms.flatMap(p => p.deposits.map(d => ({ date: d.date, delta: d.amount, key: `dep-${d.id}` })));
+    const depositEvents = relevantPlatforms.flatMap(p => p.deposits.map(d => ({ date: d.date, delta: d.type === 'withdrawal' ? -d.amount : d.amount, key: `dep-${d.id}` })));
     const betEvents = decided.map(b => ({ date: b.date, delta: profitFor(b), key: `bet-${b.id}` }));
     const events = [...depositEvents, ...betEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
     let running = 0;
@@ -253,20 +264,32 @@ export default function App() {
     const amount = parseFloat(newPlatformAmount);
     if (!name) { setError('Give the platform a name.'); return; }
     if (!amount || amount < 0) { setError('Starting amount must be zero or more.'); return; }
-    const platform = { id: uid(), name, deposits: amount > 0 ? [{ id: uid(), date: new Date().toISOString().slice(0, 10), amount }] : [] };
+    const platform = { id: uid(), name, deposits: amount > 0 ? [{ id: uid(), date: new Date().toISOString().slice(0, 10), amount, type: 'deposit' }] : [] };
     setPlatforms(prev => [...prev, platform]);
     setNewPlatformName('');
     setNewPlatformAmount('');
   };
 
-  const addFunds = (platformId) => {
-    const amount = parseFloat(addFundsAmount);
-    if (!amount || amount <= 0) return;
+  const openFundsForm = (platformId, mode) => {
+    setFundsFormOpenId(platformId);
+    setFundsFormMode(mode);
+    setFundsAmount('');
+    setFundsError('');
+  };
+
+  const submitFunds = (platformId) => {
+    setFundsError('');
+    const amount = parseFloat(fundsAmount);
+    if (!amount || amount <= 0) { setFundsError('Enter an amount above zero.'); return; }
+    if (fundsFormMode === 'withdraw') {
+      const p = platformStats.find(pl => pl.id === platformId);
+      if (p && amount > p.balance) { setFundsError(`Can't withdraw more than the current balance (${fmt(p.balance, settings.currency)}).`); return; }
+    }
     setPlatforms(prev => prev.map(p => p.id === platformId
-      ? { ...p, deposits: [...p.deposits, { id: uid(), date: new Date().toISOString().slice(0, 10), amount }] }
+      ? { ...p, deposits: [...p.deposits, { id: uid(), date: new Date().toISOString().slice(0, 10), amount, type: fundsFormMode === 'withdraw' ? 'withdrawal' : 'deposit' }] }
       : p));
-    setAddFundsAmount('');
-    setAddFundsOpenId(null);
+    setFundsAmount('');
+    setFundsFormOpenId(null);
   };
 
   const removePlatform = (platformId) => {
@@ -314,9 +337,19 @@ export default function App() {
             <span>LIVE · SEASON {new Date().getFullYear()}/{String(new Date().getFullYear() + 1).slice(2)}</span>
           </div>
         </div>
-        <button className="settings-btn" onClick={() => setShowSettings(true)} aria-label="Settings">
-          <Settings size={16} />
-        </button>
+        <div className="header-actions">
+          <button
+            className="settings-btn"
+            onClick={() => setBalanceVisible(v => !v)}
+            aria-label={balanceVisible ? 'Hide balance figures' : 'Show balance figures'}
+            title={balanceVisible ? 'Hide balance figures' : 'Show balance figures'}
+          >
+            {balanceVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+          <button className="settings-btn" onClick={() => setShowSettings(true)} aria-label="Settings">
+            <Settings size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="view-selector-row">
@@ -341,13 +374,13 @@ export default function App() {
       )}
 
       <div className="scoreboard">
-        <ScoreTile label="Total Balance" value={fmt(viewBalance, settings.currency)} colorClass={viewBalance >= viewLoaded ? 'text-green' : 'text-red'} />
+        <ScoreTile label="Total Balance" value={fmtMasked(viewBalance, settings.currency, balanceVisible)} colorClass={balanceVisible ? (viewBalance >= viewLoaded ? 'text-green' : 'text-red') : ''} />
         <ScoreTile
           label="Total Loaded"
-          value={fmt(viewLoaded, settings.currency)}
+          value={fmtMasked(viewLoaded, settings.currency, balanceVisible)}
           sub={viewPlatform === 'all' ? `${platforms.length} platform${platforms.length === 1 ? '' : 's'}` : platformName(viewPlatform)}
         />
-        <ScoreTile label="P/L" value={fmt(totalProfit, settings.currency)} sub={`staked ${fmt(totalStaked, settings.currency)}`} colorClass={totalProfit >= 0 ? 'text-green' : 'text-red'} />
+        <ScoreTile label="P/L" value={fmtMasked(totalProfit, settings.currency, balanceVisible)} sub={`staked ${fmtMasked(totalStaked, settings.currency, balanceVisible)}`} colorClass={balanceVisible ? (totalProfit >= 0 ? 'text-green' : 'text-red') : ''} />
         <ScoreTile label="ROI" value={`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`} colorClass={roi >= 0 ? 'text-green' : 'text-red'} />
         <ScoreTile label="Strike Rate" value={`${strikeRate.toFixed(0)}%`} sub={`${wins}W ${decided.length - wins}L`} />
         <ScoreTile
@@ -380,21 +413,30 @@ export default function App() {
                       </button>
                     </div>
                     <div className="platform-item-stats">
-                      <span>Loaded <b>{fmt(p.loaded, settings.currency)}</b></span>
-                      <span>Balance <b className={p.profit >= 0 ? 'text-green' : 'text-red'}>{fmt(p.balance, settings.currency)}</b></span>
+                      <span>Loaded <b>{fmtMasked(p.loaded, settings.currency, balanceVisible)}</b></span>
+                      <span>Balance <b className={balanceVisible ? (p.profit >= 0 ? 'text-green' : 'text-red') : ''}>{fmtMasked(p.balance, settings.currency, balanceVisible)}</b></span>
                       <span>ROI <b className={p.roi >= 0 ? 'text-green' : 'text-red'}>{p.roi >= 0 ? '+' : ''}{p.roi}%</b></span>
                     </div>
-                    {addFundsOpenId === p.id ? (
-                      <div className="add-funds-row">
-                        <input
-                          type="number" step="0.01" placeholder="Amount to add" autoFocus
-                          value={addFundsAmount} onChange={e => setAddFundsAmount(e.target.value)}
-                        />
-                        <button className="btn-small" onClick={() => addFunds(p.id)}>Add</button>
-                        <button className="btn-small-ghost" onClick={() => { setAddFundsOpenId(null); setAddFundsAmount(''); }}>Cancel</button>
+                    {fundsFormOpenId === p.id ? (
+                      <div className="add-funds-block">
+                        <div className="add-funds-row">
+                          <input
+                            type="number" step="0.01"
+                            placeholder={fundsFormMode === 'withdraw' ? 'Amount to withdraw' : 'Amount to add'}
+                            autoFocus value={fundsAmount} onChange={e => setFundsAmount(e.target.value)}
+                          />
+                          <button className={fundsFormMode === 'withdraw' ? 'btn-small btn-small-red' : 'btn-small'} onClick={() => submitFunds(p.id)}>
+                            {fundsFormMode === 'withdraw' ? 'Withdraw' : 'Add'}
+                          </button>
+                          <button className="btn-small-ghost" onClick={() => { setFundsFormOpenId(null); setFundsAmount(''); setFundsError(''); }}>Cancel</button>
+                        </div>
+                        {fundsError && <div className="error-text">{fundsError}</div>}
                       </div>
                     ) : (
-                      <button className="link-btn" onClick={() => setAddFundsOpenId(p.id)}>+ Add funds</button>
+                      <div className="funds-links">
+                        <button className="link-btn" onClick={() => openFundsForm(p.id, 'add')}>+ Add funds</button>
+                        <button className="link-btn link-btn-withdraw" onClick={() => openFundsForm(p.id, 'withdraw')}>− Withdraw</button>
+                      </div>
                     )}
                   </div>
                 ))}

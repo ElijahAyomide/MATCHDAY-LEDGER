@@ -53,6 +53,7 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+.header-actions { display: flex; align-items: center; gap: 8px; }
 .settings-btn {
   padding: 8px;
   border: 1px solid #272E20;
@@ -255,7 +256,10 @@ body {
   padding: 8px 0 0;
   cursor: pointer;
 }
-.add-funds-row { display: flex; gap: 6px; margin-top: 8px; }
+.funds-links { display: flex; gap: 14px; }
+.link-btn-withdraw { color: #EA5B4E; }
+.add-funds-block { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.add-funds-row { display: flex; gap: 6px; }
 .add-funds-row input {
   flex: 1;
   background: #12160F;
@@ -278,6 +282,7 @@ body {
   align-items: center;
   justify-content: center;
 }
+.btn-small-red { background: #EA5B4E; color: #1A0908; }
 .btn-small-ghost {
   background: transparent;
   color: #818A76;
